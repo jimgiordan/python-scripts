@@ -1,0 +1,1 @@
+reading ~/kh.txt lets split each line into it's three parts based on a ' ' delimiter - then show each line that has a duplicate hostname (the second column)

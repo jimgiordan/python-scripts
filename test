@@ -1,0 +1,64 @@
+#!/Users/jimgiordan/dev/.venv/bin/python
+
+import numpy as np
+
+sales_data = {
+    'Blue Cow': {
+        'Purple Apple': {
+            'sales_volume': 82976,
+            'total_revenue': 135250.88
+        },
+        'Pink Pineapple': {
+            'sales_volume': 75797,
+            'total_revenue': 78828.88
+        },
+        'Blue Banana': {
+            'sales_volume': 57946,
+            'total_revenue': 112994.70
+        },
+        'White Cherry': {
+            'sales_volume': 82984,
+            'total_revenue': 109538.88
+        },
+        'Teal Plum': {
+            'sales_volume': 99456,
+            'total_revenue': 182004.48
+        }
+    },
+    'Angel': {
+        'Purple Apple': {
+            'sales_volume': 68219,
+            'total_revenue': 98917.55
+        },
+        'Pink Pineapple': {
+            'sales_volume': 91817,
+            'total_revenue': 154252.56
+        },
+        'Blue Banana': {
+            'sales_volume': 54027,
+            'total_revenue': 104272.11
+        },
+        'White Cherry': {
+            'sales_volume': 58351,
+            'total_revenue': 99780.21
+        },
+        'Teal Plum': {
+            'sales_volume': 53956,
+            'total_revenue': 80394.44
+        }
+    }
+}
+
+# Extract the sales volumes for Blue Cow
+blue_cow_volumes = [flavour_data['sales_volume'] for flavour_data in sales_data['Blue Cow'].values()]
+
+# Calculate the population standard deviation (ddof=0 is the default)
+pop_std_deviation = np.std(blue_cow_volumes)
+print(f"total volumes for Bluw cow are {np.sum(blue_cow_volumes )}")
+# Calculate the sample standard deviation (ddof=1)
+sample_std_deviation = np.std(blue_cow_volumes, ddof=1)
+
+
+print(f"The sales volumes for Blue Cow are: {blue_cow_volumes}")
+print(f"The POPULATION standard deviation of Blue Cow's sales volume is: {pop_std_deviation:.2f}")
+print(f"The SAMPLE standard deviation of Blue Cow's sales volume is: {sample_std_deviation:.2f}")

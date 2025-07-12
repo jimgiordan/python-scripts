@@ -1,0 +1,238 @@
+# ~/.bashrc: executed by bash(1) for non-login shells.
+# see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
+# for examples
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# don't put duplicate lines or lines starting with space in the history.
+# See bash(1) for more options
+HISTCONTROL=ignoreboth
+
+# append to the history file, don't overwrite it
+shopt -s histappend
+
+# for setting history length see HISTSIZE and HISTFILESIZE in bash(1)
+HISTSIZE=1000
+HISTFILESIZE=2000
+
+# check the window size after each command and, if necessary,
+# update the values of LINES and COLUMNS.
+shopt -s checkwinsize
+
+# If set, the pattern "**" used in a pathname expansion context will
+# match all files and zero or more directories and subdirectories.
+#shopt -s globstar
+
+# make less more friendly for non-text input files, see lesspipe(1)
+#[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+
+# set variable identifying the chroot you work in (used in the prompt below)
+if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=$(cat /etc/debian_chroot)
+fi
+
+# set a fancy prompt (non-color, unless we know we "want" color)
+case "$TERM" in
+    xterm-color|*-256color) color_prompt=yes;;
+esac
+
+# uncomment for a colored prompt, if the terminal has the capability; turned
+# off by default to not distract the user: the focus in a terminal window
+# should be on the output of commands, not on the prompt
+force_color_prompt=yes
+
+if [ -n "$force_color_prompt" ]; then
+    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+	# We have color support; assume it's compliant with Ecma-48
+	# (ISO/IEC-6429). (Lack of such support is extremely rare, and such
+	# a case would tend to support setf rather than setaf.)
+	color_prompt=yes
+    else
+	color_prompt=
+    fi
+fi
+
+if [ "$color_prompt" = yes ]; then
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w \$\[\033[00m\] '
+else
+    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+fi
+unset color_prompt force_color_prompt
+
+# If this is an xterm set the title to user@host:dir
+case "$TERM" in
+xterm*|rxvt*)
+    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
+    ;;
+*)
+    ;;
+esac
+
+# enable color support of ls and also add handy aliases
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+    #alias dir='dir --color=auto'
+    #alias vdir='vdir --color=auto'
+
+    alias grep='grep --color=auto'
+    alias fgrep='fgrep --color=auto'
+    alias egrep='egrep --color=auto'
+fi
+
+# colored GCC warnings and errors
+#export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
+
+# some more ls aliases
+#alias ll='ls -l'
+#alias la='ls -A'
+#alias l='ls -CF'
+
+# Alias definitions.
+# You may want to put all your additions into a separate file like
+# ~/.bash_aliases, instead of adding them here directly.
+# See /usr/share/doc/bash-doc/examples in the bash-doc package.
+
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
+
+# enable programmable completion features (you don't need to enable
+# this, if it's already enabled in /etc/bash.bashrc and /etc/profile
+# sources /etc/bash.bashrc).
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+
+# ANSI Color Codes for Bash
+# To make it easier to read and modify
+# Reset
+COLOR_RESET='\[\033[0m\]'
+# Foreground Colors
+COLOR_MAGENTA='\[\033[0;35m\]' # 35m for magenta
+COLOR_RED='\[\033[0;31m\]'    # 31m for red
+COLOR_GREEN='\[\033[0;32m\]'   # 32m for green
+COLOR_CYAN='\[\033[0;36m\]'    # 36m for cyan
+
+# Define the components of the PS1 prompt
+# Zsh's %n (username) -> Bash's \u
+USERNAME_PROMPT="${COLOR_MAGENTA}\u"
+
+# Zsh's %M (full hostname) -> Bash's \H
+# Note: Zsh's %M is full hostname, Bash's \h is short, \H is full.
+# If you prefer short hostname (\h) like in most default bash prompts, change \H to \h.
+HOSTNAME_PROMPT="${COLOR_RED}@${COLOR_GREEN}\H"
+
+# Zsh's %2~ (current directory, shortened) -> Bash's \w (with ~ for home)
+# Bash's \w always shortens home to ~, but doesn't shorten other path components like Zsh's %2~.
+# If you want something similar to %2~, you'd need a more complex function in Bash.
+# For simplicity, we'll use \w here.
+CWD_PROMPT="${COLOR_RED}:${COLOR_CYAN}\w"
+
+# Zsh's %F{reset} > -> Bash's ${COLOR_RESET} >
+END_PROMPT="${COLOR_RESET} >"
+
+# Assemble the PS1 variable
+# Combine all the parts for the main prompt
+PS1="$USERNAME_PROMPT$HOSTNAME_PROMPT$CWD_PROMPT$END_PROMPT "
+# Add a space at the end so your command doesn't butt up against the prompt
+
+alias lsc="ls -ACFhg --color"
+
+# Function to display a dynamic MOTD with neofetch and cowsay
+# This version is adjusted for Bash's 0-based array indexing.
+function display_dynamic_motd() {
+  local current_second_str second_int cow_list num_options selected_cow_index selected_cow cowsay_art
+
+  # Basic check if core commands exist
+  if ! command -v neofetch &> /dev/null; then
+    echo "Warning: 'neofetch' command not found. Please install it."
+    return 1 # Exit function if neofetch is missing
+  fi
+
+  local cowsay_installed=0
+  if command -v cowsay &> /dev/null; then cowsay_installed=1; fi
+  
+  local fortune_installed=0
+  if command -v fortune &> /dev/null; then fortune_installed=1; fi
+
+  current_second_str=$(date +"%S")
+  second_int=$((10#$current_second_str)) # Force base 10 for numbers like "08", "09"
+
+  if (( cowsay_installed == 1 )); then
+    # Populate cow_list array (this syntax works in modern Bash too)
+    cow_list=($(cowsay -l | grep -v ":" | tr -d '\r'))
+    num_options=${#cow_list[@]}
+  else
+    num_options=0 # If cowsay isn't there, we don't have cow options.
+  fi
+
+  if (( num_options > 0 && second_int >= 0 && second_int < num_options )); then
+    # The second is in range for a specific cow, and cowsay is available.
+    
+    # *** BASH-SPECIFIC CHANGE HERE: Array is 0-indexed ***
+    selected_cow_index=$second_int # Bash arrays are 0-indexed, so no +1 needed
+    
+    selected_cow=${cow_list[selected_cow_index]}
+
+    if (( fortune_installed == 1 )); then
+      cowsay_art="$(fortune | cowsay -f "$selected_cow")"
+    else
+      cowsay_art="$(echo "A wise person once said: 'Install fortune for a better message!'" | cowsay -f "$selected_cow")"
+    fi
+    
+    neofetch --ascii "$cowsay_art"
+  else
+    # The second is out of range OR cowsay/fortune not installed.
+    neofetch
+  fi
+}
+
+display_dynamic_motd
+
+#--- Custom Function for Safe Daily Upgrades ---
+daily_upgrade() {
+# Define the path for the log file in the user's home directory
+    local LOG_FILE="$HOME/.last_upgrade_log"
+
+# Get the current date in YYYY-MM-DD format
+    local CURRENT_DATE=$(date +%Y-%m-%d)
+
+# Read the last run date from the log file, if it exists
+    local LAST_RUN_DATE=""
+    if [ -f "$LOG_FILE" ]; then
+        LAST_RUN_DATE=$(cat "$LOG_FILE")
+    fi
+
+# Compare the current date with the last run date
+    if [ "$CURRENT_DATE" = "$LAST_RUN_DATE" ]; then
+# If they match, do nothing
+        echo "You have already run a full upgrade today ($LAST_RUN_DATE)."
+        echo "Please try again tomorrow."
+    else
+# If they don't match, proceed with the upgrade
+        echo "Last upgrade was on: ${LAST_RUN_DATE:-never}. Starting new upgrade..."
+
+# First, run apt update, then run full-upgrade.
+# The '&&' means full-upgrade will only run if 'update' succeeds.
+          sudo sh -c "apt update && apt full-upgrade -y && apt autoremove -y"
+
+# Check the exit code of the last command ($?). 0 means success.
+        if [ $? -eq 0 ]; then
+            echo "Upgrade successful. Logging today's date."
+# On success, write the current date to the log file
+            echo "$CURRENT_DATE" > "$LOG_FILE"
+        else
+            echo "Upgrade failed or was cancelled. Log file will not be updated."
+        fi
+    fi
+}
+daily_upgrade

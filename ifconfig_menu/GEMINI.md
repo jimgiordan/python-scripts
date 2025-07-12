@@ -1,0 +1,1 @@
+The purpose of this project is to provide a command line user interface to select the reports available in ipconfig - using the interfaces as options from getiflist and using them as arguments, we will start by subprocess.run("ipconfig") to pick up the various report options and for now ignore anything that starts set
