@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 
+import sys
+import os
+
+# Add the ~/dev directory to the Python path
+# Get the original user's home directory, even when running with sudo -H
+# SUDO_USER is set by sudo to the name of the user who invoked sudo
+original_user_home = os.path.expanduser(f"~{os.getenv('SUDO_USER')}") if os.getenv('SUDO_USER') else os.path.expanduser('~')
+sys.path.insert(0, os.path.join(original_user_home, 'dev'))
+
 from netwk import (
     get_private_ipv4,
     get_public_ip,
     get_gateway_ip,
     get_ipv6_addresses,
     get_mac_address,
-    get_open_ports,
+    get_open_tcp_ports,
     get_open_udp_ports,
 )
 
@@ -18,7 +27,7 @@ def main():
     mac_address = get_mac_address()
     gateway_ip = get_gateway_ip()  # The router IP is typically the same
     ipv6_addresses = get_ipv6_addresses()
-    open_tcp_ports = get_open_ports()
+    open_tcp_ports = get_open_tcp_ports()
     open_udp_ports = get_open_udp_ports()
 
     # --- 2. Organize the primary data for display ---
