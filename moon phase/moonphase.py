@@ -1,44 +1,35 @@
 #!/usr/bin/env python3
 import subprocess, sys
-from datetime import datetime, timezone
 
 try:
-    from skyfield.api import load, Topos, Loader
+    from skyfield import api
 except ImportError:
     #print("Info: 'skyfield' module not found. Installing...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "skyfield", "-q"])
-    from skyfield.api import load, Topos, Loader
-
-# Get today's date
-today = datetime.now(timezone.utc)
+    from skyfield import api
 
 # Load the ephemeris (data about celestial objects)
-load = Loader('/tmp')
-planets = load('de421.bsp')
+load = api.Loader('/tmp')
+planets = api.load('de421.bsp')
 
-# Define the location (Earth)
 earth = planets['earth']
-
-# Define the moon
 moon = planets['moon']
-
-# Define the sun
-sun = planets['sun'] # Define the sun object
+sun = planets['sun']
 
 # Convert today's date to a Skyfield Time object
-ts = load.timescale()
-t = ts.from_datetime(today)
+ts = api.load.timescale()
+t = ts.now()
 
 # Calculate the moon's phase
-astrometric = earth.at(t).observe(moon)
+astrometric = earth.at(t).observe(planets['earth'])
 apparent = astrometric.apparent()
 
 # Calculate the elongation using separation_from()
-elongation = apparent.separation_from(earth.at(t))
+elongation = apparent.separation_from(planets['moon'].at(t))
 elongation_degrees = elongation.degrees
 
 # Calculate the phase angle, providing the sun's position
-phase_angle = apparent.phase_angle(sun).degrees # Pass the sun object to phase_angle()
+phase_angle = apparent.phase_angle(planets['sun']).degrees # Pass the sun object to phase_angle()
 
 # Determine the moon phase name
 if phase_angle < 45:
