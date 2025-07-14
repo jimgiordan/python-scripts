@@ -30,8 +30,3 @@ dist/
 *.tmp
 *.swp
 
-# Ignored directories
-icloud_details/
-
-# Ignore .gitignore itself
-.gitignore
