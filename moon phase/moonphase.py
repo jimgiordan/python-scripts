@@ -11,7 +11,7 @@ except ImportError:
 try:
   from colorama import Fore, Back, Style, init
 except ImportError:
-  subprocess.check_call(sys.executable, "m", "pip", "install", "colorama", "-q")
+  subprocess.check_call([sys.executable, "-m", "pip", "install", "colorama", "-q"])
   from colorama import Fore, Back, Style, init
 
 # Load the ephemeris (data about celestial objects)
@@ -33,33 +33,24 @@ elongation_degrees = elongation.degrees
 # Calculate the phase angle, providing the sun's position
 phase_angle = apparent.phase_angle(planets['sun']).degrees # Pass the sun object to phase_angle()
 
-# Determine the moon phase name (your existing logic)
-if phase_angle < 45:
-  moon_phase = "New Moon"
-elif phase_angle < 90:
-  moon_phase = "Waxing Crescent"
-elif phase_angle < 135:
-  moon_phase = "First Quarter"
-elif phase_angle < 180:
-  moon_phase = "Waxing Gibbous"
-elif phase_angle < 225:
-  moon_phase = "Full Moon"
-elif phase_angle < 270:
-  moon_phase = "Waning Gibbous"
-elif phase_angle < 315:
-  moon_phase = "Last Quarter"
-else:
-  moon_phase = "Waning Crescent"
-
-
+moon_phase_names = [
+  "New Moon",
+  "Waxing Crescent",
+  "First Quarter",
+  "Waxing Gibbous",
+  "Full Moon",
+  "Waning Gibbous",
+  "Last Quarter",
+  "Waning Crescent"
+]
+index = int((phase_angle % 360) // 45)
+moon_phase = moon_phase_names[index]
 
 # --- Enhance with skyfield.almanac for Season ---
 season_function = almanac.seasons(planets)
 current_season_index = season_function(t)
 season_names = ['Spring', 'Summer', 'Autumn', 'Winter']
 current_season = season_names[current_season_index]
-
-
 
 # --- Enhance with skyfield.almanac for Moon Phases ---
 moon_phase_function = almanac.moon_phases(planets)
@@ -69,12 +60,18 @@ current_moon_node_index = int(not moon_node_function(t))
 current_moon_node = almanac.MOON_NODES[current_moon_node_index]
 current_moon_phase_almanac = almanac.MOON_PHASES[current_moon_phase_index]
 
+data = {
+  "phase": f"{Fore.CYAN}{moon_phase}{Style.RESET_ALL}", 
+  "season": f"{Fore.MAGENTA}{current_season}{Style.RESET_ALL}",
+  "almanac": f"{Fore.GREEN}{current_moon_phase_almanac} {current_moon_node}{Style.RESET_ALL}"
+}
+
 # Print the result
-print(f"It is currently {Fore.MAGENTA}{current_season}{Style.RESET_ALL} and we have an {Fore.GREEN}{current_moon_node} {current_moon_phase_almanac}{Style.RESET_ALL} or a {Fore.CYAN}{moon_phase}{Style.RESET_ALL}")
-'''
-print(f"Today's moon phase (from phase angle): {moon_phase}")
-print(f"Current Season: {current_season}")
-print(f"It is currently [38;5;165m{current_season}[0m and we have an [38;5;46m{current_moon_node} {current_moon_phase_almanac}[0m or a [38;5;51m{moon_phase}[0m")
-'''
+print(
+  f"It is currently " 
+  f"{data['season']} and we have a " 
+  f"{data['almanac']} or a " 
+  f"{data['phase']}" 
+  )
 
 subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "skyfield", "colorama", "-y", "-q"])
