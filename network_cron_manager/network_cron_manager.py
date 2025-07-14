@@ -13,7 +13,7 @@ HOST_SCANNER_SCRIPT_PATH = os.path.join(os.path.expanduser("~"), "scripts", "hos
 # Define the EXACT cron job line for host_scanner.py
 # This MUST match the line you want to enable/disable in your crontab, excluding any leading '#'
 # Ensure the Python path and script path are correct for your system.
-HOST_SCANNER_CRON_JOB_LINE = f"*/20 6-22 * * * /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 {HOST_SCANNER_SCRIPT_PATH} >/dev/null 2>&1"
+HOST_SCANNER_CRON_JOB_LINE = f"*/20 6-22 * * * /Users/jimgiordan/.venv/bin/python3 {HOST_SCANNER_SCRIPT_PATH} >/dev/null 2>&1"
 
 # --- File Paths ---
 HOME_DIR = os.path.expanduser("~")
@@ -31,12 +31,7 @@ logging.basicConfig(
     filemode='a' # Append to the log file
 )
 
-# If running interactively for testing, also print to console
-if sys.stdout.isatty():
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    logging.getLogger().addHandler(console_handler)
+
 
 # --- Helper Functions ---
 
@@ -61,72 +56,6 @@ def _check_debounce():
         
     return True
 
-You're right to consider the robustness of pipes, but in this context, they are actually highly efficient and very reliable for connecting standard Unix commands. Pipes are a fundamental and heavily optimized part of how Unix-like operating systems (like macOS) work.
-
-Let's break down that command and discuss its efficiency and any potential "problems":
-
-ipconfig getsummary $(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2}') | awk -F ' SSID : ' '/ SSID : / {print $2}'
-
-Breakdown and Efficiency:
-
-networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2}'
-
-This part efficiently finds your Wi-Fi interface name (e.g., en0).
-
-networksetup lists all hardware ports.
-
-awk then filters that output: it finds the line "Hardware Port: Wi-Fi", reads the next line (getline), and prints its second field, which is the device name (en0, en1, etc.).
-
-ipconfig getsummary $(...)
-
-The $(...) is command substitution. The output of the first awk command (the interface name, e.g., en0) is then passed as an argument to ipconfig getsummary.
-
-So, this effectively becomes ipconfig getsummary en0 (or en1, etc.). This is exactly the command we confirmed works well for getting your SSID.
-
-| awk -F ' SSID : ' '/ SSID : / {print $2}'
-
-This is the final parsing step.
-
-awk -F ' SSID : ' sets the field separator to the exact string " SSID : ".
-
-/ SSID : / tells awk to only process lines that contain " SSID : ".
-
-{print $2} then prints the second field on that line, which will be your SSID (e.g., "Loire").
-
-Efficiency Assessment:
-
-This one-liner is indeed more efficient than running two separate subprocess.run calls from Python and doing two stages of parsing in Python.
-
-Fewer Process Spawns: Instead of Python spawning networksetup, reading its output, parsing it, then spawning ipconfig, reading its output, and parsing it again, this single shell command allows the shell to manage the pipes and execution, which is highly optimized. It's essentially one subprocess.run(..., shell=True) call in Python.
-
-Native Tool Efficiency: awk is extremely fast and efficient at text processing in the shell.
-
-Potential "Problems" (and why they're usually not an issue here):
-
-Pipes Themselves: Pipes are not a problem. They are robust and performant. The output of one command is directly streamed as input to the next, which is very efficient as it avoids temporary files.
-
-Error Handling in Shell: The main potential "problem" is how errors are handled within the shell pipeline. If networksetup fails, or if awk doesn't find the Wi-Fi interface, or if ipconfig fails, the pipeline might just produce an empty string or an error message to standard error, and the final awk might not find anything to print.
-
-However, when you run this via subprocess.run(..., check=True), Python will raise a CalledProcessError if any command in the pipe exits with a non-zero status, which helps in catching errors.
-
-Whitespace in SSID: As we discussed before, if an SSID itself contained the literal string " SSID : ", this specific awk delimiter could theoretically mess up the parsing. This is extremely unlikely for a real-world SSID.
-
-Conclusion:
-
-The suggested one-liner is a very good and efficient solution for getting the SSID on macOS without sudo. It's concise, leverages native shell tools effectively, and performs well.
-
-I would recommend using this one-liner in your get_current_ssid() function for macOS.
-
-Here's how you'd update your get_current_ssid() function:
-
-Python
-
-import subprocess
-import sys
-import logging
-
-# (Assuming logging is configured as before)
-
 def get_current_ssid():
     """
     Gets the current Wi-Fi SSID based on the operating system.
@@ -135,32 +64,27 @@ def get_current_ssid():
     ssid = None
     
     if sys.platform == 'darwin': # macOS
-        # Unified shell command to get the SSID
-        # 1. Finds Wi-Fi interface using networksetup and awk
-        # 2. Gets summary for that interface using ipconfig
-        # 3. Parses the SSID from the summary using awk
         command = "ipconfig getsummary $(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2}') | awk -F ' SSID : ' '/ SSID : / {print $2}'"
         
         try:
             result = subprocess.run(
                 command,
-                shell=True, # Critical: tells subprocess to execute the string as a shell command
+                shell=True,
                 capture_output=True,
                 text=True,
-                check=True # Raises CalledProcessError if the command fails
+                check=True
             )
             ssid = result.stdout.strip()
             
-            if ssid: # Check if we actually got an SSID (could be empty string if not connected)
-                logging.info(f"macOS: SSID found via one-liner: '{ssid}'")
+            if ssid:
+                logging.info(f"macOS: SSID found: '{ssid}'")
             else:
-                logging.warning("macOS: One-liner executed, but no SSID found. Is Wi-Fi connected?")
+                logging.warning("macOS: No SSID found. Is Wi-Fi connected?")
 
         except subprocess.CalledProcessError as e:
-            logging.error(f"macOS: SSID one-liner command failed (exit code {e.returncode}): {e.stderr.strip()}")
-            logging.warning("macOS: This often indicates Wi-Fi is not active or the interface could not be determined.")
+            logging.error(f"macOS: SSID command failed (exit code {e.returncode}): {e.stderr.strip()}")
         except Exception as e:
-            logging.error(f"macOS: An unexpected error occurred while getting SSID with one-liner: {e}")
+            logging.error(f"macOS: An unexpected error occurred while getting SSID: {e}")
 
     elif sys.platform.startswith('linux'): # Linux (Keep your existing Linux logic)
         # ... (your existing Linux detection logic) ...
