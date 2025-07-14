@@ -54,42 +54,19 @@ else:
 print(f"Today's moon phase (from phase angle): {moon_phase}")
 
 # --- Enhance with skyfield.almanac for Season ---
-# Define a time range for the current year
-t_start_year = ts.utc(t.utc_datetime().year, 1, 1)
-t_end_year = ts.utc(t.utc_datetime().year + 1, 1, 1)
-
-# Get season events
-times_seasons, events_seasons = almanac.seasons(planets)(ts, t_start_year, t_end_year)
-
-# Find the season that just passed or is current
-# Filter events that have already occurred
-past_season_indices = (times_seasons <= t).nonzero()[0]
-if past_season_indices.size > 0:
-    current_season_index = past_season_indices[-1]
-    season_names = ['Spring', 'Summer', 'Autumn', 'Winter']
-    current_season = season_names[events_seasons[current_season_index]]
-    print(f"Current Season: {current_season}")
-else:
-    print("Could not determine current season (no past season events found this year).")
+season_function = almanac.seasons(planets)
+current_season_index = season_function(t)
+season_names = ['Spring', 'Summer', 'Autumn', 'Winter']
+current_season = season_names[current_season_index]
+print(f"Current Season: {current_season}")
 
 
 # --- Enhance with skyfield.almanac for Moon Phases ---
-# Define a time range around the current time (e.g., +/- 2 days)
-t_moon_start = ts.utc(t.utc_datetime().year, t.utc_datetime().month, t.utc_datetime().day - 2)
-t_moon_end = ts.utc(t.utc_datetime().year, t.utc_datetime().month, t.utc_datetime().day + 2)
-
-# Get moon phase events
-times_moon_phases, events_moon_phases = almanac.moon_phases(planets)(ts, t_moon_start, t_moon_end)
-
-# Find the most recent moon phase event
-past_moon_phase_indices = (times_moon_phases <= t).nonzero()[0]
-if past_moon_phase_indices.size > 0:
-    closest_phase_index = past_moon_phase_indices[-1]
-    phase_names_almanac = ['New Moon', 'First Quarter', 'Full Moon', 'Last Quarter']
-    current_moon_phase_almanac = phase_names_almanac[events_moon_phases[closest_phase_index]]
-    print(f"Current Moon Phase (from almanac): {current_moon_phase_almanac}")
-else:
-    print("Could not determine current moon phase from almanac (no recent events found).")
+moon_phase_function = almanac.moon_phases(planets)
+current_moon_phase_index = moon_phase_function(t)
+phase_names_almanac = ['New Moon', 'First Quarter', 'Full Moon', 'Last Quarter']
+current_moon_phase_almanac = phase_names_almanac[current_moon_phase_index]
+print(f"Current Moon Phase (from almanac): {current_moon_phase_almanac}")
 
 
 subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "skyfield", "-y", "-q"])
