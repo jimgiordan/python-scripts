@@ -64,8 +64,7 @@ print(f"Current Season: {current_season}")
 # --- Enhance with skyfield.almanac for Moon Phases ---
 moon_phase_function = almanac.moon_phases(planets)
 current_moon_phase_index = moon_phase_function(t)
-phase_names_almanac = ['New Moon', 'First Quarter', 'Full Moon', 'Last Quarter']
-current_moon_phase_almanac = phase_names_almanac[current_moon_phase_index]
+current_moon_phase_almanac = almanac.MOON_PHASES[current_moon_phase_index]
 print(f"Current Moon Phase (from almanac): {current_moon_phase_almanac}")
 
 
