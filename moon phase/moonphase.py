@@ -67,5 +67,11 @@ current_moon_phase_index = moon_phase_function(t)
 current_moon_phase_almanac = almanac.MOON_PHASES[current_moon_phase_index]
 print(f"Current Moon Phase (from almanac): {current_moon_phase_almanac}")
 
+# --- Enhance with skyfield.almanac for Moon Nodes ---
+moon_node_function = almanac.moon_nodes(planets)
+current_moon_node_index = moon_node_function(t)
+current_moon_node = almanac.MOON_NODES[current_moon_node_index]
+print(f"Current Moon Node: {current_moon_node}")
+
 
 subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "skyfield", "-y", "-q"])
