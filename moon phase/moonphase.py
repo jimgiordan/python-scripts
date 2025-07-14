@@ -59,7 +59,7 @@ t_start_year = ts.utc(t.utc_datetime().year, 1, 1)
 t_end_year = ts.utc(t.utc_datetime().year + 1, 1, 1)
 
 # Get season events
-times_seasons, events_seasons = almanac.seasons(ts, earth)
+times_seasons, events_seasons = almanac.seasons(planets)(ts, t_start_year, t_end_year)
 
 # Find the season that just passed or is current
 # Filter events that have already occurred
@@ -79,7 +79,7 @@ t_moon_start = ts.utc(t.utc_datetime().year, t.utc_datetime().month, t.utc_datet
 t_moon_end = ts.utc(t.utc_datetime().year, t.utc_datetime().month, t.utc_datetime().day + 2)
 
 # Get moon phase events
-times_moon_phases, events_moon_phases = almanac.moon_phases(planets)(t_moon_start, t_moon_end)
+times_moon_phases, events_moon_phases = almanac.moon_phases(planets)(ts, t_moon_start, t_moon_end)
 
 # Find the most recent moon phase event
 past_moon_phase_indices = (times_moon_phases <= t).nonzero()[0]
