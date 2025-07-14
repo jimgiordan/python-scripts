@@ -10,8 +10,8 @@ except ImportError:
     from skyfield import api, almanac
 
 # Load the ephemeris (data about celestial objects)
-loader = api.Loader('/tmp') # Correctly create a Loader object
-planets = loader.load('de421.bsp') # Use the Loader object to load the ephemeris
+load = api.Loader('/tmp') # Correctly create a Loader object
+planets = load('de421.bsp') # Use the Loader object to load the ephemeris
 
 earth = planets['earth']
 moon = planets['moon']
