@@ -4,7 +4,6 @@ import subprocess, sys
 try:
   from skyfield import api, almanac
 except ImportError:
-  #print("Info: 'skyfield' module not found. Installing...")
   subprocess.check_call([sys.executable, "-m", "pip", "install", "skyfield", "-q"])
   from skyfield import api, almanac
 
@@ -46,13 +45,16 @@ moon_phase_names = [
 index = int((phase_angle % 360) // 45)
 moon_phase = moon_phase_names[index]
 
-# --- Enhance with skyfield.almanac for Season ---
 season_function = almanac.seasons(planets)
 current_season_index = season_function(t)
-season_names = ['Spring', 'Summer', 'Autumn', 'Winter']
+season_names = [
+  "Spring", 
+  "Summer", 
+  "Autumn", 
+  "Winter"
+]
 current_season = season_names[current_season_index]
 
-# --- Enhance with skyfield.almanac for Moon Phases ---
 moon_phase_function = almanac.moon_phases(planets)
 current_moon_phase_index = moon_phase_function(t)
 moon_node_function = almanac.moon_nodes(planets)
@@ -66,7 +68,6 @@ data = {
   "almanac": f"{Fore.GREEN}{current_moon_phase_almanac} {current_moon_node}{Style.RESET_ALL}"
 }
 
-# Print the result
 print(
   f"It is currently " 
   f"{data['season']} and we have a " 
