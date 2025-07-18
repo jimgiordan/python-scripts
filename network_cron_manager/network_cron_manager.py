@@ -9,7 +9,7 @@ import time # For a simple debounce mechanism
 
 # --- Configuration Constants ---
 TRUSTED_SSIDS_FILENAME = "trusted_ssids.txt" # List of trusted Wi-Fi SSIDs, one per line
-HOST_SCANNER_SCRIPT_PATH = os.path.join(os.path.expanduser("~"), "scripts", "host_scanner.py")
+HOST_SCANNER_SCRIPT_PATH = os.path.join(os.path.expanduser("~"), "dev", "host_scanner", "host_scanner.py")
 # Define the EXACT cron job line for host_scanner.py
 # This MUST match the line you want to enable/disable in your crontab, excluding any leading '#'
 # Ensure the Python path and script path are correct for your system.

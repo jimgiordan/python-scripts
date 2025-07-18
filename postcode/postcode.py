@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 # prompt: get my postcode based on my ip address
 
-import requests
+import subprocess
+import sys
 import json
+
+try:
+  import requests
+except ImportError:
+  subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "-q"])
+  import requests
 
 def get_postcode_from_ip():
   try:
@@ -35,3 +42,5 @@ if postcode:
   print("Your postcode:", postcode)
 else:
   print("Could not determine your postcode.")
+
+subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "requests", "-y", "-q"])

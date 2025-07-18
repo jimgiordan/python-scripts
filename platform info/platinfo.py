@@ -9,73 +9,59 @@ import re
 import asyncio # For asynchronous operations
 from typing import List, Dict, Any, Tuple, Optional
 
-# Global variable for current platform for cleaner access
+original_user_home = os.path.expanduser(f"~{os.getenv('SUDO_USER')}") if os.getenv('SUDO_USER') else os.path.expanduser('~')
+sys.path.insert(0, os.path.join(original_user_home, 'dev'))
+
+# only listing these as a reminder of what is usable - one day I will revert this to just import netwk and update the code appropriately
+from netwk import (
+   get_private_ipv4,
+   get_public_ip,
+   get_gateway_ip,
+   get_ipv6_addresses,
+   get_mac_address,
+   get_open_tcp_ports,
+   get_open_udp_ports,
+   get_nwkset_data,
+   get_ipconfig_data,
+)
+
 CURRENT_PLATFORM = sys.platform
 
-# Import installed modules or attempt to install them
 try:
-    import netifaces as ni
-    import tabulate as tb
+     import tabulate as tb
 except ImportError:
-    print("netifaces or tabulate not found. Attempting to install...")
-    try:
-        if "linux" in CURRENT_PLATFORM:
-            # For Linux, prefer apt for system-wide installs if running with sudo
-            # Note: For production, a virtual environment is often better than system-wide installs.
-            print("Running apt update and installing dependencies...")
-            subprocess.run(["sudo", "apt", "update", "-y"], check=True, capture_output=True)
-            subprocess.run(["sudo", "apt", "install", "python3-netifaces", "python3-tabulate", "-y"], check=True, capture_output=True)
-        else:
-            # For other platforms, use pip3
-            print("Running pip install dependencies...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "netifaces", "tabulate"], check=True, capture_output=True, text=True)
-        import netifaces as ni
-        import tabulate as tb
-        print("netifaces and tabulate installed successfully.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error installing dependencies. Command '{e.cmd}' failed with return code {e.returncode}")
-        # Ensure stdout/stderr are decoded for error reporting
-        stdout_content = e.stdout.decode("utf-8", errors="replace") if isinstance(e.stdout, bytes) else str(e.stdout)
-        stderr_content = e.stderr.decode("utf-8", errors="replace") if isinstance(e.stderr, bytes) else str(e.stderr)
-        print(f"STDOUT: {stdout_content}")
-        print(f"STDERR: {stderr_content}")
-        sys.exit(1) # Exit if essential dependencies cannot be installed
-    except Exception as e:
-        print(f"An unexpected error occurred during dependency installation: {e}")
-        sys.exit(1) # Exit if essential dependencies cannot be installed
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "tabulate", "-q"])
+    import tabulate as tb
 
-
-## Initialisation bits
-# Debug flag: Set to True for verbose output during execution
-# dbg = False # Removed dbg variable
-# csc = False # Original variable, commented out as not used
-
-# Define path for the report file based on the operating system
 if "win32" in CURRENT_PLATFORM:
     report_output_dir = "" # Current directory on Windows
 else:
     report_output_dir = "/tmp/" # Standard temporary directory on Linux/macOS
-report_file_name = "pfinf.txt"
+report_file_name = "platinfo.txt"
 full_report_filepath = os.path.join(report_output_dir, report_file_name)
 
 # Define headers for tabular output using 'tabulate'
-NI_LST_HDR = ["--- netifaces --- ", ""]
-PYT_LST_HDR = ["---python info --- ", ""]
-MCH_LST_HDR = ["---machine info--- ", ""]
-SYS_LST_HDR = ["   ---  sys  ---   ", ""]
-OS_LST_HDR = ["    ---  os  ---    ", ""]
-CLI_LST_HDR = ["---CLI commands ---", ""]
-LNX_LST_HDR = ["---linux details---", ""]
+def crt_hdr(title, total_width=30, fill_char='-'):
+    return title.center(total_width, fill_char)
+
+NI_LST_HDR = [crt_hdr("netifaces"), ""]
+PYT_LST_HDR = [crt_hdr("python info"), ""]
+MCH_LST_HDR = [crt_hdr("machine info"), ""]
+SYS_LST_HDR = [crt_hdr("sys"), ""]
+OS_LST_HDR = [crt_hdr("os"), ""]
+CLI_LST_HDR = [crt_hdr("CLI commands"), ""]
+LNX_LST_HDR = [crt_hdr("linux details"), ""]
 ARP_HDR = ["Name", "IP4", "MAC", "Interface"] # Corrected "name" to "Name" for consistency
 SN_HDR = ["Hostname", "IP Address", "Port", "Service"]
 STD_HDR = ["Key", "Value"]
 TBLFMT = "rounded_outline" # Table format for tabulate
 
 # Dictionary mapping platforms to available report types
+core_reports = ["command line", "python", "machine", "system", "os"]
 AVAILABLE_REPORTS: Dict[str, List[str]] = {
-    "darwin": ["command line", "python", "machine", "arp", "netifaces", "system", "os", "nmap"],
-    "linux": ["command line", "python", "machine", "arp", "netifaces", "system", "os", "linux", "nmap"],
-    "win32": ["command line", "python", "machine", "system", "os", "windows"]
+    "darwin": core_reports + ["arp", "netifaces", "nmap"],
+    "linux": core_reports + ["arp", "netifaces", "linux", "nmap"],
+    "win32": core_reports + ["windows"]
 }
 ## Initialisation done
 
@@ -134,12 +120,7 @@ async def async_scan_network() -> str:
     Parses the Nmap greppable output and formats it into a table.
     """
     try:
-        # Determine the default gateway and construct the subnet for Nmap scan
-        default_gw_info = ni.gateways().get("default", {}).get(ni.AF_INET)
-        if not default_gw_info:
-            return "Error: Could not determine default gateway for IPv4 to perform Nmap scan."
-
-        gateway_ip = default_gw_info[0]
+        gateway_ip = get_gateway_ip()
         # Assume a /24 subnet for the local network (common for home networks)
         # Adjust if your network uses a different subnet mask
         subnet = f"{'.'.join(gateway_ip.split('.')[:-1])}.0/24"
@@ -203,83 +184,15 @@ def get_cli_info() -> str:
     """
     cli_lst: List[List[str]] = []
 
+    # see oldmaclid.py for the old code - this is much cleaner
     if "darwin" in CURRENT_PLATFORM:
-        # run_command returns bytes, so decode for printing/list append
-        cli_lst.append(["ssid",
-                       run_command(
-                           "ipconfig getsummary $(networksetup -listallhardwareports | awk '/Hardware Port: Wi-Fi/{getline; print $2}') | awk -F ' SSID : ' '/ SSID : / {print $2}'",
-                            shell=True, # Critical: tells subprocess to execute the string as a shell command
-                            capture_output=True,
-                            check=True # Raises CalledProcessError if the command fails
-                        ).decode("utf-8", errors="replace").strip()])
-        cli_lst.append(["gateway", run_command(["ipconfig", "getoption", "en0", "router"]).decode("utf-8", errors="replace").strip()])
-        cli_lst.append(["ip4", run_command(["ipconfig", "getifaddr", "en0"]).decode("utf-8", errors="replace").strip()])
-        
-        # CLEANED UP: scutil --nwi | grep address | awk '{print $3}'
-        try:
-            # print("DEBUG: Getting scutil --nwi output...") # Removed debug print
-            scutil_output_str = run_command(["scutil", "--nwi"], shell=False, check=True).decode("utf-8", errors="replace").strip() # Decode to str
-            # print(f"DEBUG: scutil_output_str type: {type(scutil_output_str)}") # Removed debug print
-            
-            # Process output in Python instead of grep/awk
-            alt_ip4 = "N/A"
-            for line in scutil_output_str.splitlines():
-                if "address" in line:
-                    match = re.search(r'address\s*:\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', line)
-                    if match:
-                        alt_ip4 = match.group(1)
-                        break
-            cli_lst.append(["alt_cmd ip4", alt_ip4])
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            cli_lst.append(["alt_cmd ip4", f"Error running command: {e}"])
-        except Exception as e:
-            error_detail = ""
-            if isinstance(e, subprocess.CalledProcessError):
-                output = e.output.decode('utf-8', errors='replace') if isinstance(e.output, bytes) else str(e.output)
-                stderr = e.stderr.decode('utf-8', errors='replace') if isinstance(e.stderr, bytes) else str(e.stderr)
-                error_detail = f"Command failed with code {e.returncode}. Output: {output}, Stderr: {stderr}"
-            else:
-                try: error_detail = str(e)
-                except Exception as inner_e: error_detail = f"Failed to stringify exception: {type(e).__name__} object. Inner error: {inner_e}"
-            cli_lst.append(["alt_cmd ip4", f"An unexpected error occurred: {error_detail}"])
-
-
-        # CLEANED UP: ifconfig en0 | grep inet6 | grep -v temp | awk '{print $2}'
-        try:
-            # print("DEBUG: Getting ifconfig en0 output...") # Removed debug print
-            ifconfig_output_str = run_command(["ifconfig", "en0"], shell=False, check=True).decode("utf-8", errors="replace").strip() # Decode to str
-            # print(f"DEBUG: ifconfig_output_str type: {type(ifconfig_output_str)}") # Removed debug print
-            
-            # Process output in Python instead of grep/awk
-            ipv6_addr = "N/A"
-            for line in ifconfig_output_str.splitlines():
-                if "inet6" in line and "temp" not in line:
-                    match = re.search(r'inet6\s+([0-9a-fA-F:]+)', line)
-                    if match:
-                        ipv6_addr = match.group(1)
-                        break
-            cli_lst.append(["ip6", ipv6_addr])
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            cli_lst.append(["ip6", f"Error running command: {e}"])
-        except Exception as e:
-            error_detail = ""
-            if isinstance(e, subprocess.CalledProcessError):
-                output = e.output.decode('utf-8', errors='replace') if isinstance(e.output, bytes) else str(e.output)
-                stderr = e.stderr.decode('utf-8', errors='replace') if isinstance(e.stderr, bytes) else str(e.stderr)
-                error_detail = f"Command failed with code {e.returncode}. Output: {output}, Stderr: {stderr}"
-            else:
-                try: error_detail = str(e)
-                except Exception as inner_e: error_detail = f"Failed to stringify exception: {type(e).__name__} object. Inner error: {inner_e}"
-            cli_lst.append(["ip6", f"An unexpected error occurred: {error_detail}"])
-
-
-        cli_lst.append(["sw_vers PN", run_command(["sw_vers", "-productName"]).decode("utf-8", errors="replace").strip()])
-        cli_lst.append(["sw_vers PV", run_command(["sw_vers", "-productVersion"]).decode("utf-8", errors="replace").strip()])
         cli_lst.append(["hostname", run_command(["hostname"]).decode("utf-8", errors="replace").strip()])
 
-        for opt in ["m", "n", "o", "p", "r", "s", "v"]:
-            cli_lst.append([f"uname -{opt}", run_command(["uname", f"-{opt}"]).decode("utf-8", errors="replace").strip()]) # Label improved
-
+        cli_lst += get_nwkset_data(CURRENT_PLATFORM)
+        cli_lst += get_ipconfig_data(CURRENT_PLATFORM)
+        for line in subprocess.run(["sw_vers"], capture_output=True, text=True).stdout.splitlines():
+            cli_lst.append([line.strip().split(":", 1)[0].strip(), line.strip().split(":", 1)[1].strip()])
+        
     elif "linux" in CURRENT_PLATFORM:
         default_interface_str: str = "eth0" # Default fallback
         try:
@@ -309,7 +222,6 @@ def get_cli_info() -> str:
         except FileNotFoundError:
             cli_lst.append(["gateway", "N/A (ip command not found)"])
 
-
         # Get IPv4 address for the default interface
         try:
             ipv4_output_str = run_command(["ip", "addr", "show", default_interface_str], shell=False, check=True).decode("utf-8", errors="replace").strip() # Decode to str
@@ -319,7 +231,6 @@ def get_cli_info() -> str:
             cli_lst.append(["ip4", "N/A"])
         except FileNotFoundError:
             cli_lst.append(["ip4", "N/A (ip command not found)"])
-
 
         # Get global unicast IPv6 address for the default interface
         try:
@@ -334,10 +245,6 @@ def get_cli_info() -> str:
         except FileNotFoundError:
             cli_lst.append(["ip6", "N/A (ip command not found)"])
 
-
-        # Get uname information
-        for opt in ["m", "n", "o", "p", "r", "s", "v"]:
-            cli_lst.append([f"uname -{opt}", run_command(["uname", f"-{opt}"]).decode("utf-8", errors="replace").strip()])
 
     elif "win32" in CURRENT_PLATFORM:
         # For Windows, parsing ipconfig output can be complex; using shell=True with findstr is practical
@@ -363,77 +270,40 @@ def get_cli_info() -> str:
 
     else:
         cli_lst.append(["Error", "Unsupported platform for CLI info"])
+    
+    if "win32" != CURRENT_PLATFORM:
+        for opt in ["m", "n", "o", "p", "r", "s", "v"]:
+            cli_lst.append([f"uname -{opt}", run_command(["uname", f"-{opt}"]).decode("utf-8", errors="replace").strip()]) # Label improved
+
     return tb.tabulate(cli_lst, headers=CLI_LST_HDR, tablefmt=TBLFMT)
 
 def get_ni_info() -> str:
-    """
-    Gathers network interface information using the 'netifaces' module.
-    """
     ni_lst: List[List[str]] = []
-    try:
-        # Get default gateway information for IPv4
-        default_gw_info = ni.gateways().get("default", {}).get(ni.AF_INET)
-        if not default_gw_info:
-            return tb.tabulate([["Error", "No default IPv4 gateway found"]], headers=NI_LST_HDR, tablefmt=TBLFMT)
-
-        gateway_address = default_gw_info[0]
-        interface = default_gw_info[1]
-        ni_lst.append(["Default Gateway", gateway_address])
-        ni_lst.append(["Default Interface", interface])
-
-        # Get IPv4 address of the default interface
-        ipv4_info = ni.ifaddresses(interface).get(ni.AF_INET)
-        if ipv4_info and ipv4_info[0].get("addr"):
-            ni_lst.append(["IPv4 Address", ipv4_info[0]["addr"]])
-            ni_lst.append(["IPv4 Netmask", ipv4_info[0].get("netmask", "N/A")])
-            ni_lst.append(["IPv4 Broadcast", ipv4_info[0].get("broadcast", "N/A")])
-        else:
-            ni_lst.append(["IPv4 Address", "N/A"])
-
-        # Get global IPv6 address of the default interface (excluding link-local)
-        ipv6_info = ni.ifaddresses(interface).get(ni.AF_INET6)
-        if ipv6_info:
-            global_ipv6_addrs = [item["addr"] for item in ipv6_info if item.get("addr") and not item["addr"].startswith("fe80:")]
-            if global_ipv6_addrs:
-                ni_lst.append(["IPv6 Address (Global)", global_ipv6_addrs[0]]) # Just take the first global one
-            else:
-                ni_lst.append(["IPv6 Address (Global)", "N/A"])
-        else:
-            ni_lst.append(["IPv6 Address (Global)", "N/A"])
-
-        # Get MAC address of the default interface
-        mac_info = ni.ifaddresses(interface).get(ni.AF_LINK)
-        if mac_info and mac_info[0].get("addr"):
-            ni_lst.append(["MAC Address", mac_info[0]["addr"]])
-        else:
-            ni_lst.append(["MAC Address", "N/A"])
-
-    except ValueError as e:
-        # Handle cases where interface might not have AF_INET, AF_INET6, or AF_LINK addresses
-        ni_lst.append(["Error", f"Could not retrieve full netifaces info for default interface: {e}"])
-    except Exception as e:
-        ni_lst.append(["Error", f"An unexpected error occurred getting netifaces info: {e}"])
+    ni_lst.append(["Gateway IP", get_gateway_ip()])
+    ni_lst.append(["Local IP4 Address", get_private_ipv4()])
+    ni_lst.append(["Public IP4 Address", get_public_ip()])
+    for x in get_ipv6_addresses():
+        ni_lst.append(["IP6 Addresses", x])
+    ni_lst.append(["MAC Address", get_mac_address()])
 
     return tb.tabulate(ni_lst, headers=NI_LST_HDR, tablefmt=TBLFMT)
 
 def get_pyt_info() -> str:
-    """
-    Gathers various Python interpreter-specific information.
-    """
     pyt_lst: List[List[str]] = []
     pyt_lst.append(["Branch", pf.python_branch()])
-    # pf.python_build() returns a tuple (build_number, build_date), convert to string
+    for x in pf.python_build():
+        pyt_lst.append(["Build", x]) 
     pyt_lst.append(["Build", str(pf.python_build())])
     pyt_lst.append(["Compiler", pf.python_compiler()])
     pyt_lst.append(["Implementation", pf.python_implementation()])
     pyt_lst.append(["Revision", pf.python_revision()])
     pyt_lst.append(["Python Version", pf.python_version()])
+    for k, v in pf.uname()._asdict().items():
+        pyt_lst.append([k.replace('_', ' ').title(), v])
+
     return tb.tabulate(pyt_lst, headers=PYT_LST_HDR, tablefmt=TBLFMT)
 
 def get_mch_info() -> str:
-    """
-    Gathers various machine-specific hardware and OS information.
-    """
     mch_lst: List[List[Any]] = []
     mch_lst.append(["Machine Architecture", pf.machine()])
     mch_lst.append(["Network Node Name", pf.node()])
@@ -462,9 +332,6 @@ def get_mch_info() -> str:
     return tb.tabulate(mch_lst, headers=MCH_LST_HDR, tablefmt=TBLFMT)
 
 def get_sys_info() -> str:
-    """
-    Gathers various Python 'sys' module related information.
-    """
     sys_lst: List[List[Any]] = []
     sys_lst.append(["API Version", sys.api_version])
     sys_lst.append(["Command-line Arguments", sys.argv])
@@ -475,9 +342,6 @@ def get_sys_info() -> str:
     return tb.tabulate(sys_lst, headers=SYS_LST_HDR, tablefmt=TBLFMT)
 
 def get_os_info() -> str:
-    """
-    Gathers various OS-level information using the 'os' module.
-    """
     os_lst: List[List[Any]] = []
     os_lst.append(["Current User", os.environ.get("USER")])
     os_lst.append(["CPU Count", os.cpu_count()])
@@ -505,31 +369,14 @@ def get_os_info() -> str:
     return tb.tabulate(os_lst, headers=OS_LST_HDR, tablefmt=TBLFMT)
 
 def get_arp_info() -> str:
-    """
-    Gathers ARP table information using 'arp -a' and processes it into a table.
-    Handles differences in 'arp -a' output across Linux and macOS.
-    """
     arp_table_data: List[List[str]] = []
     try:
-        # print(f"DEBUG: Calling run_command for arp -a...") # Removed debug print
-        # run_command returns bytes.
         arp_output_bytes = run_command(["arp", "-a"], shell=False, check=True) 
-        # print(f"DEBUG: Type of arp_output_bytes: {type(arp_output_bytes)}") # Removed debug print
-        
         arp_output_str = arp_output_bytes.decode("utf-8", errors="replace").strip()
-        # print(f"DEBUG: Type of arp_output_str (decoded from bytes): {type(arp_output_str)}") # Removed debug print
-
-        # Process output in Python instead of grep/awk
         for line in arp_output_str.splitlines():
-            # Skip incomplete entries
             if "incomplete" in line:
                 continue
 
-            # Regex to parse ARP line
-            # Common patterns:
-            # Linux: Hostname (IP) at MAC [ether] on Interface
-            # Darwin: Hostname (IP) at MAC on Interface [if_type]
-            # Capture Name, IP, MAC, Interface
             match = re.search(r'^(\S+)\s+\(([\d.]+)\)\s+at\s+([0-9a-fA-F:]+)(?:\s+\[ether\])?\s+on\s+(\S+)', line)
             
             if match:
@@ -539,35 +386,23 @@ def get_arp_info() -> str:
                 interface = match.group(4).strip()
                 arp_table_data.append([name, ip4, mac, interface])
             else:
-                # Fallback for other formats or unparsed lines (e.g., Windows simplified, if not skipped above)
-                # Windows 'arp -a' format is very different and often needs dedicated parsing.
-                # Since win32 is explicitly skipped, this might catch unexpected formats on Linux/macOS
                 parts = line.split()
                 if len(parts) >= 4: # Basic check for enough parts
-                    # This is a very generic fallback and might not always be correct.
-                    # It tries to extract parts based on common order.
                     potential_name = parts[0].replace('?', 'unknown') # Replace '?' with 'unknown'
                     potential_ip = parts[1].replace('(', '').replace(')', '')
                     potential_mac = parts[3]
                     potential_iface = parts[-1] # Assuming interface is last for some formats
 
-                    # Add a simple heuristic to avoid clearly invalid entries for now
                     if '.' in potential_ip and ':' in potential_mac:
                         arp_table_data.append([potential_name, potential_ip, potential_mac, potential_iface])
-                    # elif dbg: # Removed debug print
-                        # print(f"DEBUG: Line not matched by regex and fallback heuristic failed: {line}") # Removed debug print
-
 
     except FileNotFoundError as e:
-        # print(f"DEBUG: Caught FileNotFoundError: {type(e)}, {e}") # Removed debug print
         return f"Error: Command not found to get ARP info ({e}). Please ensure 'arp' is installed."
     except subprocess.CalledProcessError as e:
-        # print(f"DEBUG: Caught CalledProcessError: {type(e)}, {e}") # Removed debug print
         stderr_content = e.stderr.decode("utf-8", errors="replace") if isinstance(e.stderr, bytes) else str(e.stderr)
         output_content = e.output.decode("utf-8", errors="replace") if isinstance(e.output, bytes) else str(e.output)
         return f"Error running ARP command: Return Code: {e.returncode}, Stdout: {output_content}, Stderr: {stderr_content}"
     except Exception as e:
-        # print(f"DEBUG: Caught generic Exception in get_arp_info: {type(e)}, {e}") # Removed debug print
         error_detail = ""
         if isinstance(e, subprocess.CalledProcessError):
             output = e.output.decode('utf-8', errors='replace') if isinstance(e.output, bytes) else str(e.output)
@@ -597,9 +432,6 @@ def get_win32_info() -> str:
     return tb.tabulate(win32_lst, headers=STD_HDR, tablefmt=TBLFMT)
 
 def get_linux_info() -> str:
-    """
-    Gathers Linux-specific OS release information from freedesktop.org standards.
-    """
     lnx_lst: List[List[str]] = []
     if "linux" in CURRENT_PLATFORM:
         # pf.freedesktop_os_release() returns a dictionary
@@ -609,18 +441,8 @@ def get_linux_info() -> str:
     return tb.tabulate(lnx_lst, headers=LNX_LST_HDR, tablefmt=TBLFMT)
 
 # --- Main execution logic ---
-
 async def main():
-    """
-    Main asynchronous function to orchestrate gathering and displaying system information.
-    Handles user interaction, calls appropriate info-gathering functions, and writes to a file.
-    """
-    # Ensure the report output directory exists
-    os.makedirs(report_output_dir, exist_ok=True) # exist_ok=True prevents error if dir already exists
-
-    # Dynamically populate report_functions dictionary
-    # Functions are stored as references, to be called when selected by the user.
-    # The 'nmap' entry now points to the async version.
+    os.makedirs(report_output_dir, exist_ok=True)
     report_functions: Dict[str, Any] = {
         "command line": get_cli_info,
         "python": get_pyt_info,
@@ -631,10 +453,9 @@ async def main():
         "os": get_os_info,
         "windows": get_win32_info,
         "linux": get_linux_info,
-        "nmap": async_scan_network # This is now the async function
+        "nmap": async_scan_network
     }
 
-    # Open the report file in write mode. It will be created if it doesn't exist, or truncated if it does.
     with open(full_report_filepath, 'w') as info_file:
         print("Available reports:")
         platform_reports = AVAILABLE_REPORTS.get(CURRENT_PLATFORM, [])
@@ -644,7 +465,6 @@ async def main():
         report_choices_str = input("Enter the numbers of the reports you want to see (comma-separated): ")
         selected_report_indices: List[int] = []
 
-        # Parse user input for report selection
         for choice in report_choices_str.split(","):
             try:
                 index = int(choice.strip()) - 1
@@ -655,20 +475,12 @@ async def main():
             except ValueError:
                 if choice.strip(): # Only warn if input wasn't just empty space
                     print(f"Warning: Invalid input '{choice.strip()}' - please enter numbers.")
-
-        # Get the actual report names based on valid indices
         selected_reports_names = [platform_reports[i] for i in selected_report_indices]
-
-        # Iterate through selected reports and generate their content
         for report_type in selected_reports_names:
             report_func = report_functions.get(report_type)
             if report_func:
-                # if dbg: # Removed debug print
-                    # print(f"\n--- Running report: {report_type.upper()} ---") # Removed debug print
-
                 report_content: str
                 try:
-                    # Check if the function is a coroutine function (async) and await it
                     if asyncio.iscoroutinefunction(report_func):
                         report_content = await report_func()
                     else:
@@ -677,42 +489,24 @@ async def main():
                     report_content = f"Error generating {report_type} report: {e}"
                     print(report_content) # Also print to console on error
 
-                # if dbg: # Removed debug print
-                    # print(report_content) # Removed debug print
                 info_file.write(report_content)
                 info_file.write("\n\n") # Add extra newlines for readability between reports
 
-                # Platform-specific action: Text-to-speech on macOS
                 if 'darwin' in CURRENT_PLATFORM:
                     try:
-                        # Use subprocess.run for external command
                         subprocess.run(["say", "-v", "Moira", f"Generating {report_type} report"], check=True, capture_output=True)
                     except Exception as e:
                         print(f"Could not use 'say' command: {e}")
             else:
                 print(f"Report type '{report_type}' not found or function missing.")
 
-        # If debug mode is on, write environment variables to the report file
-        # if dbg: # Removed debug print
-            # env_vars = [[key, value] for key, value in os.environ.items()] # Removed debug print
-            # env_table = tb.tabulate(env_vars, headers=STD_HDR, tablefmt=TBLFMT) # Removed debug print
-            # info_file.write("\n--- Environment Variables ---") # Removed debug print
-            # info_file.write("\n") # Removed debug print
-            # info_file.write(env_table) # Removed debug print
-            # info_file.write("\n") # Removed debug print
-
-# Entry point of the script
 if __name__ == "__main__":
-    # Clear the console screen based on the operating system
     if "win32" in CURRENT_PLATFORM:
         subprocess.run("cls", shell=True)
     else:
         subprocess.run("clear", shell=True)
-
-    # Run the main asynchronous function
     asyncio.run(main())
 
-    # --- Open the generated report file ---
     open_command_args: Optional[List[str]] = None
 
     if "win32" in CURRENT_PLATFORM:
@@ -720,8 +514,6 @@ if __name__ == "__main__":
     elif "darwin" in CURRENT_PLATFORM:
         open_command_args = ["open", full_report_filepath]
     elif "linux" in CURRENT_PLATFORM:
-        # On Linux, try xdg-open first, which intelligently opens the file
-        # Fallback to printing a message if xdg-open is not found or fails
         try:
             subprocess.run(["xdg-open", full_report_filepath], check=True, capture_output=True)
             print(f"Report opened with xdg-open: {full_report_filepath}")
@@ -733,7 +525,6 @@ if __name__ == "__main__":
 
     if open_command_args:
         try:
-            # Execute the command to open the report file
             subprocess.run(open_command_args, check=True)
         except Exception as e:
             print(f"Error opening report file automatically: {e}")

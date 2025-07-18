@@ -161,4 +161,63 @@ def get_open_udp_ports():
     except psutil.Error:
         return [("Could not retrieve ports", "")]
 
+def get_nwkset_data(platform):
+    if platform != "darwin":
+        return [("Error", "Not a macOS machine")]
+
+    iflist = subprocess.run(["networksetup", "-listallnetworkservices"], capture_output = True, text = True)
+
+    all_services_info = {}
+    for service_name in iflist.stdout.splitlines()[1::]:
+        info_result = subprocess.run(["networksetup", "-getinfo", service_name], capture_output=True, text=True)
+        current_service_data = {}
+        for line in info_result.stdout.splitlines():
+            if ":" in line:
+                parts = line.split(': ', 1)
+                if len(parts) == 2 and parts[1]:
+                    current_service_data[parts[0]] = parts[1]
+        all_services_info[service_name] = current_service_data
+
+    for service_name, data in all_services_info.items():
+        if "IP address" in data and data["IP address"] != "none":
+            table_data = all_services_info[service_name]
+            break
+
+    return table_data.items()
+
+def get_ipconfig_data(platform):
+    if platform != "darwin":
+        return [("Error", "Not a macOS machine")]
+
+    iflist = subprocess.run(["ipconfig", "getiflist"], capture_output=True, text = True)
+    for ifc in iflist.stdout.split():
+        if subprocess.run(["ipconfig", "getifaddr", ifc], capture_output=True, text=True).stdout:
+            summary = subprocess.run(["ipconfig", "getsummary", ifc], capture_output=True, text=True)
+        else:
+            pass
+
+    table_data={}
+    for line in summary.stdout.splitlines():
+        line = line.strip()
+        split_arg = [" = ", " : ", ": "]
+        for x in split_arg:
+            if x in line:
+                table_data[line.split(x, 1)[0]] = line.split(x, 1)[1]
+                break
+            else:
+                pass
+
+    return_data={}
+    data_keys = [
+    {"yiaddr" : "IP address"},
+    {"subnet_mask (ip)" : "Subnet mask"}, 
+    {"Router" : "Router"}, 
+    {"chaddr" : "MAC sddress"},
+    {"SSID" : "Wi-Fi Node"}
+    ]
+    for map_key in data_keys:
+        return_data[map_key[ list(map_key.keys())[0] ]] = table_data.get(list(map_key.keys())[0])
+
+    return return_data.items()
+
 subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "netifaces", "requests", "psutil", "-y", "-q"])

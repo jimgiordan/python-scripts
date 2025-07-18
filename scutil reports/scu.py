@@ -10,9 +10,8 @@ import platform
 try:
     from tabulate import tabulate
 except ImportError:
-    print("Error: The 'tabulate' library is not installed.", file=sys.stderr)
-    print("Please install it using: pip install tabulate", file=sys.stderr)
-    sys.exit(1)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "tabulate", "-q"])
+    from tabulate import tabulate
 
 # --- Constants ---
 # No REPORT_PREFIXES needed for scutil as we define display names
@@ -169,6 +168,8 @@ def main():
 
     for scutil_key in selected_scutil_keys:
         print_scutil_report(scutil_key) # Call the scutil-specific print function
+
+subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "tabulate", "-y", "-q"])
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,14 @@
+#!/usr/bin/env python3
+
 import collections
-from tabulate import tabulate
+import subprocess
+import sys
+
+try:
+    from tabulate import tabulate
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "tabulate", "-q"])
+    from tabulate import tabulate
 
 def find_duplicate_hostnames(file_path):
     with open(file_path, 'r') as f:
@@ -21,6 +30,8 @@ def find_duplicate_hostnames(file_path):
 
     headers = ["Hostname", "IP4 Address", "MAC Address"]
     print(tabulate(duplicates, headers=headers, tablefmt="plain"))
+
+    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "tabulate", "-y", "-q"])
 
 if __name__ == '__main__':
     find_duplicate_hostnames('/users/jimgiordan/kh.txt')

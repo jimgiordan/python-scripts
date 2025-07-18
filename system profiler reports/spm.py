@@ -10,9 +10,8 @@ import platform # NEW: Import the platform module
 try:
     from tabulate import tabulate
 except ImportError:
-    print("Error: The 'tabulate' library is not installed.", file=sys.stderr)
-    print("Please install it using: pip install tabulate", file=sys.stderr)
-    sys.exit(1)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "tabulate", "-q"])
+    from tabulate import tabulate
 
 # --- Constants ---
 REPORT_PREFIXES = ("SP", "DataType")
@@ -164,6 +163,8 @@ def main():
     for report_name in selected_reports_to_print:
         print(report_name)
         print_report(report_name)
+
+    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "tabulate", "-y", "-q"])    
 
 if __name__ == "__main__":
     main()
