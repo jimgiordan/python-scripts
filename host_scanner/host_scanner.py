@@ -4,20 +4,39 @@ import subprocess
 import socket
 import os
 import re
-from tabulate import tabulate
 import sys
 import logging
 import time # For time.sleep for testing, though cron handles real scheduling
+import csv # Added for CSV handling
+import datetime # Added for date checking
+
+# --- Dependency Check ---
+try:
+    from tabulate import tabulate
+    import requests
+except ImportError as e:
+    #missing_module = str(e).split("'")[1]
+    #print(f"Error: Missing required module '{missing_module}'.")
+    #print(f"Please install it by running: pip install {missing_module}")
+    #sys.exit(1)
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests", "tabulate", "-q"])
+    from tabulate import tabulate
+    import requests
+
 
 # --- Configuration Constants ---
 GOOGLE_DNS = "8.8.8.8"
 GOOGLE_DNS_PORT = 80
 NMAP_SCAN_ARGS = ["-sn"] # -sn performs a ping scan, just host discovery
 ARP_CMD = ["arp", "-a"]
-KNOWN_HOSTS_FILENAME = "kh.txt" # Stored in user's home directory
+KNOWN_HOSTS_FILENAME = "kh.csv" # Changed to CSV
 TEMP_HOSTS_DIR = "/tmp"
-TABLE_HEADERS = ["Hostname", "IP Address", "MAC Address", "Status"]
+TABLE_HEADERS = ["Hostname", "IP Address", "MAC Address", "Status", "Vendor"]
 RUN_INTERVAL_MINUTES = 5 # How often the script runs in background mode
+
+MAC_OUI_CSV_PATH = os.path.join(TEMP_HOSTS_DIR, "mac-vendors-export.csv") # Path for OUI DB
+MAC_OUI_DOWNLOAD_URL = "https://maclookup.app/downloads/csv-database/get-db?t=25-07-18&h=b65016a7457c33dd854b7fd0fb4b9402cd58e85a"
+MAX_CSV_AGE_DAYS = 7 # Max age of OUI CSV before re-downloading
 
 # --- File Paths ---
 HOME_DIR = os.path.expanduser("~")
@@ -111,50 +130,158 @@ def parse_arp_line(arp_line_str):
         if mac_address == "(incomplete)":
             return None # Skip incomplete entries
         else:
+            # --- START OF MAC ADDRESS NORMALIZATION ---
+            normalized_mac_segments = []
+            for segment in mac_address.split(':'):
+                try:
+                    normalized_mac_segments.append(f"{int(segment, 16):02x}")
+                except ValueError:
+                    logging.warning(f"Invalid MAC segment '{segment}' in line: {arp_line_str}")
+                    return None # Skip this entry if a segment is invalid
+            mac_address = ":".join(normalized_mac_segments)
+            # --- END OF MAC ADDRESS NORMALIZATION ---
             return hostname_or_q, ip_address, mac_address
     return None
 
 def load_known_hosts(filepath):
     """
-    Loads known hosts from a file into a set for efficient lookup.
-    Expected format per line: IP_ADDRESS DISPLAY_NAME MAC_ADDRESS
+    Loads known hosts from a CSV file.
+    Returns a tuple: (set of known hosts, boolean indicating if changes were made).
     """
     known_hosts_set = set()
+    was_changed = False
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            for line_num, line in enumerate(f, 1):
-                stripped_line = line.strip()
-                if not stripped_line:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            if header is None:
+                logging.info(f"Known hosts file '{filepath}' is empty.")
+                return known_hosts_set, was_changed
+
+            for line_num, row in enumerate(reader, 2):
+                if not row or len(row) < 3:
+                    if row: logging.warning(f"Skipping malformed row in '{filepath}' at row {line_num}: {row}")
                     continue
-                parts = stripped_line.split(' ')
-                if len(parts) >= 3:
-                    ip_addr = parts[0]
-                    mac_addr = parts[-1]
-                    display_name = ' '.join(parts[1:-1])
-                    known_hosts_set.add((ip_addr, display_name, mac_addr))
+
+                ip_addr, display_name, mac_addr_from_file = row[0].strip(), row[1].strip(), row[2].strip()
+                
+                normalized_mac_segments = []
+                mac_was_normalized = False
+                for segment in mac_addr_from_file.split(':'):
+                    try:
+                        formatted_segment = f"{int(segment, 16):02x}"
+                        normalized_mac_segments.append(formatted_segment)
+                        if formatted_segment != segment.lower():
+                            mac_was_normalized = True
+                    except ValueError:
+                        logging.warning(f"Invalid MAC segment '{segment}' in known hosts file '{filepath}' at row {line_num}. Skipping entry.")
+                        mac_was_normalized = False
+                        break
+                
+                if mac_was_normalized:
+                    normalized_mac_addr = ":".join(normalized_mac_segments)
+                    known_hosts_set.add((ip_addr, display_name, normalized_mac_addr))
+                    was_changed = True
+                    logging.info(f"Normalized MAC for {display_name} ({ip_addr}) from '{mac_addr_from_file}' to '{normalized_mac_addr}' during load.")
                 else:
-                    logging.warning(f"Skipping malformed line in '{filepath}' at line {line_num}: '{stripped_line}'")
-        logging.info(f"Loaded {len(known_hosts_set)} known hosts from '{filepath}'.")
+                    known_hosts_set.add((ip_addr, display_name, mac_addr_from_file))
+
     except FileNotFoundError:
-        logging.info(f"Known hosts file '{filepath}' not found. Starting with an empty known hosts list.")
-    except UnicodeDecodeError:
-        logging.error(f"Could not decode known hosts file '{filepath}' with UTF-8. Please check encoding.")
+        logging.info(f"Known hosts file '{filepath}' not found. Starting with an empty list.")
     except Exception as e:
-        logging.error(f"An unexpected error occurred while loading known hosts from '{filepath}': {e}")
-    return known_hosts_set
+        logging.error(f"An error occurred while loading known hosts from '{filepath}': {e}")
+    
+    return known_hosts_set, was_changed
 
 def save_known_hosts(known_hosts_set, filepath):
     """
-    Saves the in-memory set of known hosts back to the file.
-    Format per line: IP_ADDRESS DISPLAY_NAME MAC_ADDRESS
+    Saves the in-memory set of known hosts back to the CSV file.
+    Format: IP_ADDRESS,DISPLAY_NAME,MAC_ADDRESS
     """
     try:
-        with open(filepath, 'w', encoding='utf-8') as f: # 'w' will overwrite, ensuring correct format
+        with open(filepath, 'w', encoding='utf-8', newline='') as f: # newline='' is crucial for csv module
+            writer = csv.writer(f)
+            writer.writerow(["IP Address", "Hostname", "MAC Address"]) # Write header
             for ip_addr, display_name, mac_addr in sorted(list(known_hosts_set)):
-                f.write(f"{ip_addr} {display_name} {mac_addr}\n")
+                writer.writerow([ip_addr, display_name, mac_addr])
         logging.info(f"Saved {len(known_hosts_set)} known hosts to '{filepath}'.")
     except Exception as e:
         logging.error(f"Error saving known hosts to '{filepath}': {e}")
+
+def download_mac_oui_csv(url, filepath):
+    """
+    Downloads the MAC OUI CSV file from the given URL and saves it to filepath.
+    """
+    logging.info(f"Downloading new MAC OUI database from {url}...")
+    try:
+        response = requests.get(url, stream=True) # Use stream=True for potentially large files
+        response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+        with open(filepath, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192): # Iterate over content in chunks
+                f.write(chunk)
+        logging.info(f"Successfully downloaded MAC OUI database to {filepath}.")
+        return True
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error downloading MAC OUI database: {e}")
+        return False
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during download: {e}")
+        return False
+
+def load_mac_oui_database(filepath):
+    """
+    Loads the MAC OUI database from a CSV file into a dictionary.
+    Checks file age and downloads new copy if needed.
+    Keys are the first 6 hex digits of the MAC (OUI), values are vendor names.
+    """
+    needs_download = False
+    if not os.path.exists(filepath):
+        logging.info(f"MAC OUI database not found at {filepath}. Downloading...")
+        needs_download = True
+    else:
+        file_mod_time = datetime.datetime.fromtimestamp(os.path.getmtime(filepath))
+        current_time = datetime.datetime.now()
+        file_age = current_time - file_mod_time
+        
+        if file_age.days >= MAX_CSV_AGE_DAYS:
+            logging.info(f"MAC OUI database is {file_age.days} days old. Downloading new copy...")
+            needs_download = True
+        else:
+            logging.info(f"MAC OUI database is {file_age.days} days old. No download needed.")
+
+    if needs_download:
+        if not download_mac_oui_csv(MAC_OUI_DOWNLOAD_URL, filepath):
+            logging.warning("Failed to download new MAC OUI database. Attempting to use existing (possibly outdated) file.")
+            # If download fails, proceed with existing file if it exists, otherwise loading will fail
+
+    mac_oui_db = {}
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 2:
+                    oui = row[0].strip().replace('-', '').replace(':', '').upper()
+                    organization = row[1].strip()
+                    if oui and organization:
+                        mac_oui_db[oui] = organization
+        logging.info(f"Loaded {len(mac_oui_db)} MAC OUI entries from {filepath}.")
+    except FileNotFoundError:
+        logging.error(f"Error: MAC OUI database file not found at {filepath} after download attempt. Cannot proceed.")
+    except Exception as e:
+        logging.error(f"Error loading MAC OUI database from {filepath}: {e}")
+    return mac_oui_db
+
+def get_vendor_from_mac(mac_address, mac_oui_db):
+    """
+    Looks up the vendor name for a given MAC address using the OUI database.
+    """
+    if not mac_address or len(mac_address) < 6:
+        return "N/A"
+    
+    # Get the OUI (first 6 hex digits)
+    oui = mac_address.replace(':', '').replace('-', '')[:6].upper()
+    
+    return mac_oui_db.get(oui, "Unknown Vendor")
 
 # --- OS-Specific Notification Functions ---
 
@@ -237,74 +364,57 @@ def send_notification_and_get_response(title, message):
 # --- Main Script Logic ---
 def run_scan_cycle():
     logging.info(f"Starting host scan cycle at {time.ctime()}...")
-
-    # Load known hosts into memory at the start of each cycle
-    current_known_hosts = load_known_hosts(KNOWN_HOSTS_FILE_PATH)
-    known_hosts_changed = False # Flag to track if we need to rewrite the file
+    
+    mac_oui_db = load_mac_oui_database(MAC_OUI_CSV_PATH)
+    current_known_hosts, known_hosts_changed_on_load = load_known_hosts(KNOWN_HOSTS_FILE_PATH)
+    known_hosts_changed_this_scan = False
 
     local_ip_range = get_local_ip_range()
-    
-    # Always run Nmap in background mode
     run_nmap_scan(local_ip_range)
 
     arp_lines = get_arp_table_output()
     if not arp_lines:
-        logging.warning("No ARP entries found or an error occurred during ARP command.")
-        logging.info("Scan cycle finished (no ARP entries).")
-        return # Exit this cycle if no ARP data
+        logging.warning("No ARP entries found. Scan cycle finished.")
+        return
 
     table_data = []
-    resolved_count = 0
-    unresolved_count = 0
-    new_hosts_detected_count = 0
-
+    new_hosts_count = 0
     for arp_line in arp_lines:
         parsed_entry = parse_arp_line(arp_line)
-        
-        if parsed_entry:
-            hostname_or_q, ip_address, mac_address = parsed_entry
+        if not parsed_entry:
+            continue
 
-            if hostname_or_q == '?':
-                display_name = ip_address
-                unresolved_count += 1
+        hostname_or_q, ip_address, mac_address = parsed_entry
+        vendor_name = get_vendor_from_mac(mac_address, mac_oui_db)
+        display_name = hostname_or_q if hostname_or_q != '?' else ip_address
+        host_tuple = (ip_address, display_name, mac_address)
+        
+        is_new_host = host_tuple not in current_known_hosts
+        status = "New Host" if is_new_host else "Known Host"
+        
+        table_data.append([display_name, ip_address, mac_address, status, vendor_name])
+
+        if is_new_host:
+            new_hosts_count += 1
+            logging.info(f"New host detected: {display_name} ({ip_address}) [{mac_address}] - {vendor_name}")
+            
+            response = send_notification_and_get_response(
+                "New Network Host Detected!",
+                f"Host: {display_name}\nIP: {ip_address}\nMAC: {mac_address}\nVendor: {vendor_name}\n\nAdd to known hosts?"
+            )
+            
+            if response == "Yes":
+                current_known_hosts.add(host_tuple)
+                known_hosts_changed_this_scan = True
+                table_data[-1][3] = "Known (Added)"
+                logging.info(f"Host '{display_name}' added to known hosts.")
+            elif response == "No":
+                logging.info(f"Host '{display_name}' not added (user choice).")
             else:
-                display_name = hostname_or_q
-                resolved_count += 1
+                logging.warning(f"Could not get interactive response for '{display_name}'. Host not added.")
+    
+    table_data.sort(key=lambda row: row[2])
 
-            host_tuple = (ip_address, display_name, mac_address)
-            is_new_host = host_tuple not in current_known_hosts
-
-            host_status_text = "New Host" if is_new_host else "Known Host"
-
-            table_data.append([
-                display_name,
-                ip_address,
-                mac_address,
-                host_status_text
-            ])
-
-            if is_new_host:
-                new_hosts_detected_count += 1
-                logging.info(f"New host detected: {display_name} ({ip_address}) {mac_address}")
-                
-                response = send_notification_and_get_response(
-                    "New Network Host Detected!",
-                    f"Host: {display_name}\nIP: {ip_address}\nMAC: {mac_address}\n\nWould you like to add this host to your known hosts list?"
-                )
-                
-                if response == "Yes":
-                    current_known_hosts.add(host_tuple)
-                    known_hosts_changed = True
-                    table_data[-1][3] = "Known Host (Added)"
-                    logging.info(f"Host '{display_name}' added to known hosts.")
-                elif response == "No":
-                    logging.info(f"Host '{display_name}' not added to known hosts (user chose 'No').")
-                else: # response is None (GUI failed)
-                    logging.warning(f"Could not get interactive response for host '{display_name}'. Host not automatically added.")
-        
-    table_data.sort(key=lambda row: socket.inet_aton(row[1]))
-
-    # Write the formatted table to a temporary file for *potential* manual viewing
     try:
         with open(TEMP_HOSTS_FILE_PATH, 'w', encoding='utf-8') as kh:
             kh.write(tabulate(table_data, headers=TABLE_HEADERS, tablefmt="plain"))
@@ -312,24 +422,17 @@ def run_scan_cycle():
     except Exception as e:
         logging.error(f"Error writing temporary file: {e}")
 
-    logging.info(f"Scan cycle summary: {len(table_data)} hosts found ({unresolved_count} unresolved, {resolved_count} resolved). {new_hosts_detected_count} new hosts detected.")
+    logging.info(f"Scan cycle summary: {len(table_data)} hosts found. {new_hosts_count} new hosts detected.")
 
-    if known_hosts_changed:
+    if known_hosts_changed_on_load or known_hosts_changed_this_scan:
         save_known_hosts(current_known_hosts, KNOWN_HOSTS_FILE_PATH)
     else:
-        logging.info("No changes to known hosts file.")
+        logging.info("No changes to known hosts file needed.")
 
     logging.info("Host scan cycle finished.")
 
+    
+
 if __name__ == "__main__":
-    # The main loop is external for cron/systemd. This script runs one cycle.
-    # For local testing, you can uncomment the loop below.
-    
-    # print(f"Script starting in interactive testing mode. Will run every {RUN_INTERVAL_MINUTES} minutes.")
-    # while True:
-    #     run_scan_cycle()
-    #     logging.info(f"Waiting for {RUN_INTERVAL_MINUTES} minutes...")
-    #     time.sleep(RUN_INTERVAL_MINUTES * 60)
-    
-    # When deployed via cron/launchd, the scheduler calls run_scan_cycle directly
     run_scan_cycle()
+    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "requests", "tabulate", "-y", "-q"])
