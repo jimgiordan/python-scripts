@@ -22,11 +22,11 @@ ts = api.load.timescale()
 t = ts.now()
 
 # Calculate the moon's phase (your existing logic)
-astrometric = planets['earth'].at(t).observe(planets['earth'])
+astrometric = planets['earth'].at(t).observe(planets['moon'])
 apparent = astrometric.apparent()
 
 # Calculate the elongation using separation_from()
-elongation = apparent.separation_from(planets['moon'].at(t))
+elongation = apparent.separation_from(planets['earth'].at(t))
 elongation_degrees = elongation.degrees
 
 # Calculate the phase angle, providing the sun's position
@@ -42,6 +42,7 @@ moon_phase_names = [
   "Last Quarter",
   "Waning Crescent"
 ]
+#print(f"{phase_angle}: {int(phase_angle % 360)}")
 index = int((phase_angle % 360) // 45)
 moon_phase = moon_phase_names[index]
 
